@@ -7,12 +7,15 @@ import json
 import pandas as pd
 from google.cloud import bigquery
 from datetime import datetime, timedelta
+from airflow.providers.smtp.operators.smtp import EmailOperator
 
 default_args = {
     'owner': 'airflow',
     'depends_on_past': False,
     'start_date': days_ago(10),
     'retries': 0,
+    'email': ['dreambooth.idn@gmail.com'],
+    'email_on_failure': True,
 }
 
 @dag(default_args=default_args, schedule_interval='@daily', catchup=False)
@@ -76,7 +79,7 @@ def bahela_etl_pipeline():
         return local_file_path
 
     
-    @task()
+    @task(multiple_outputs=True)
     def transform_data(file_path: str):
         with open(file_path, 'r') as f:
             data = json.load(f)
@@ -170,20 +173,10 @@ def bahela_etl_pipeline():
         # Save data
         joined_file_path = '/tmp/joined_data.json'
         final_data.to_json(joined_file_path, orient='records', lines=True, date_format='iso')
-
-        # Create and save daily summary (if needed)
-        daily_summary = create_daily_summary(final_data)
-        summary_file_path = '/tmp/daily_summary.json'
-        daily_summary.to_json(summary_file_path, orient='records', lines=True, date_format='iso')
-
-        return joined_file_path
-
-    @task()
-    def create_daily_summary(df):
-        """Create daily summary from the joined data"""
-        df['date'] = df['start_time'].dt.date
         
-        summary = df.groupby('date').agg(
+        # Create and save daily summary (if needed)
+        final_data['date'] = final_data['start_time'].dt.date
+        daily_summary = final_data.groupby('date').agg(
             transaction_amount=('transaction_amount', 'sum'),
             total_discount=('discount', 'sum'),
             total_transactions=('transaction_amount', 'count'),
@@ -196,9 +189,14 @@ def bahela_etl_pipeline():
             total_pixels=('total_pixels', 'sum'),
             avg_pixels=('avg_pixels', 'mean')
         ).reset_index()
+        summary_file_path = '/tmp/daily_summary.json'
+        daily_summary.to_json(summary_file_path, orient='records', lines=True, date_format='iso')
         
-        return summary
-
+        return {
+            'joined_file_path': joined_file_path,
+            'summary_file_path': summary_file_path
+        }
+    
     @task()
     def load_to_bigquery(file_path: str):
         project_id = "moonlit-outlet-442401-d7"
@@ -247,10 +245,45 @@ def bahela_etl_pipeline():
         job.result()  # Wait for the load job to complete
         return f"Data loaded to BigQuery: {table_ref}"
 
+    @task()
+    def prepare_email_content(summary_file_path: str):
+        # Read the summary data
+        with open(summary_file_path, 'r') as f:
+            daily_summary = pd.read_json(f, lines=True)
+        
+        # Format the summary data as HTML table
+        html_table = daily_summary.to_html(
+            float_format=lambda x: '{:.2f}'.format(x) if pd.notnull(x) else '',
+            index=False
+        )
+        
+        # Create email content
+        email_content = f"""
+        <h2>Daily Bahela ETL Summary</h2>
+        <p>Please find below the summary for {daily_summary['date'].iloc[0]}:</p>
+        {html_table}
+        """
+        
+        return email_content
+
     # Define task dependencies
     api_data = extract_api_data()
     transformed_data = transform_data(api_data)
-    load_to_bigquery(transformed_data)
+    bq_load = load_to_bigquery(transformed_data['joined_file_path'])
+    email_content = prepare_email_content(transformed_data['summary_file_path'])
+
+    # Create email task without referencing the DAG instance
+    email_task = EmailOperator(
+        task_id='send_email_summary',
+        to=['christianale85@gmail.com'],
+        subject='Bahela Daily Summary',
+        html_content=email_content,
+        files=[transformed_data['summary_file_path']],
+        conn_id='smtp_default'
+    )
+
+    # Update task dependencies
+    api_data >> transformed_data >> [bq_load, email_task]
 
 # Instantiate the DAG
 bahela_etl_dag = bahela_etl_pipeline()
