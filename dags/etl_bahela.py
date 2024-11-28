@@ -14,8 +14,8 @@ default_args = {
     'depends_on_past': False,
     'start_date': days_ago(10),
     'retries': 0,
-    'email': ['dreambooth.idn@gmail.com'],
-    'email_on_failure': True,
+    'email': ['dreambooth.idn@gmail.com', 'christianale85@gmail.com'],
+    'email_on_failure': False
 }
 
 @dag(default_args=default_args, schedule_interval='@daily', catchup=False)
