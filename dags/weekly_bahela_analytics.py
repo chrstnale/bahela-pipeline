@@ -9,6 +9,16 @@ import numpy as np
 from datetime import datetime, timedelta
 from sklearn.ensemble import RandomForestRegressor
 import pickle
+import os
+from airflow.models import Variable
+from airflow.configuration import conf
+
+# Get environment variables
+MONGODB_API_URL = os.getenv('MONGODB_API_URL')
+CLOUDINARY_API_URL = os.getenv('CLOUDINARY_API_URL')
+CLOUDINARY_API_KEY = os.getenv('CLOUDINARY_API_KEY')
+CLOUDINARY_API_SECRET = os.getenv('CLOUDINARY_API_SECRET')
+EMAIL_RECIPIENTS = os.getenv('EMAIL_RECIPIENTS', 'christianale85@gmail.com').split(',')
 
 default_args = {
     'owner': 'airflow',
@@ -40,9 +50,8 @@ def weekly_bahela_analytics():
         print(f"Historical data range: {start_date} to {end_date}")
         
         # Fetch MongoDB historical data
-        mongodb_url = "https://bahela-admin.vercel.app/api/sessions"
         params = {"startDate": start_date, "endDate": end_date}
-        mongodb_response = requests.get(mongodb_url, params=params)
+        mongodb_response = requests.get(MONGODB_API_URL, params=params)
         
         # Fetch Cloudinary data using pagination logic
         def fetch_cloudinary_data(start_date, end_date):
@@ -55,19 +64,19 @@ def weekly_bahela_analytics():
                 }
                 if next_cursor:
                     params["next_cursor"] = next_cursor
-                response = requests.get(
-                    "https://api.cloudinary.com/v1_1/dqyf4lrlo/resources/search",
-                    auth=("214285446753493", "_Lwj_-7ml1KqQAe4Oadpaxoqhf4"),
-                    params=params,
+                cloudinary_response = requests.get(
+                    CLOUDINARY_API_URL,
+                    auth=(CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET),
+                    params=params
                 )
-                if response.status_code == 200:
-                    data = response.json()
+                if cloudinary_response.status_code == 200:
+                    data = cloudinary_response.json()
                     all_data.extend(data.get("resources", []))
                     next_cursor = data.get("next_cursor")
                     if not next_cursor:
                         break
                 else:
-                    raise Exception(f"Failed to fetch Cloudinary data: {response.text}")
+                    raise Exception(f"Failed to fetch Cloudinary data: {cloudinary_response.text}")
             return all_data
 
         cloudinary_data = fetch_cloudinary_data(start_date, end_date)
@@ -529,7 +538,7 @@ def weekly_bahela_analytics():
     # Create email task
     email_task = EmailOperator(
         task_id='send_weekly_report',
-        to=['christianale85@gmail.com'],
+        to=EMAIL_RECIPIENTS,
         subject='Bahela Weekly Analytics Report',
         html_content=weekly_report,
         files=[next_week_predictions],

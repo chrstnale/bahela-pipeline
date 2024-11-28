@@ -8,6 +8,18 @@ import pandas as pd
 from google.cloud import bigquery
 from datetime import datetime, timedelta
 from airflow.providers.smtp.operators.smtp import EmailOperator
+import os
+from airflow.models import Variable
+from airflow.configuration import conf
+
+# Get environment variables
+MONGODB_API_URL = os.getenv('MONGODB_API_URL')
+CLOUDINARY_API_URL = os.getenv('CLOUDINARY_API_URL')
+CLOUDINARY_API_KEY = os.getenv('CLOUDINARY_API_KEY')
+CLOUDINARY_API_SECRET = os.getenv('CLOUDINARY_API_SECRET')
+BIGQUERY_DATASET = os.getenv('BIGQUERY_DATASET')
+BIGQUERY_TABLE = os.getenv('BIGQUERY_TABLE')
+EMAIL_RECIPIENTS = os.getenv('EMAIL_RECIPIENTS', 'christianale85@gmail.com').split(',')
 
 default_args = {
     'owner': 'airflow',
@@ -26,13 +38,11 @@ def bahela_etl_pipeline():
         # Calculate yesterday's date
         yesterday = (datetime.utcnow() - timedelta(days=10)).strftime("%Y-%m-%d")
         
-        # Fetch MongoDB data
-        mongodb_url = "https://bahela-admin.vercel.app/api/sessions"
         params = {"startDate": yesterday, "endDate": yesterday}
-        mongodb_response = requests.get(mongodb_url, params=params)
+        mongodb_response = requests.get(MONGODB_API_URL, params=params)
         if mongodb_response.status_code != 200:
             raise Exception(f"MongoDB API request failed: {mongodb_response.text}")
-
+        
         # Fetch Cloudinary data using pagination logic
         def fetch_cloudinary_data(start_date, end_date):
             all_data = []
@@ -46,8 +56,8 @@ def bahela_etl_pipeline():
                 if next_cursor:
                     params["next_cursor"] = next_cursor
                 response = requests.get(
-                    "https://api.cloudinary.com/v1_1/dqyf4lrlo/resources/search",
-                    auth=("214285446753493", "_Lwj_-7ml1KqQAe4Oadpaxoqhf4"),
+                    CLOUDINARY_API_URL,
+                    auth=(CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET),
                     params=params,
                 )
                 if response.status_code == 200:
@@ -275,7 +285,7 @@ def bahela_etl_pipeline():
     # Create email task without referencing the DAG instance
     email_task = EmailOperator(
         task_id='send_email_summary',
-        to=['christianale85@gmail.com'],
+        to=EMAIL_RECIPIENTS,
         subject='Bahela Daily Summary',
         html_content=email_content,
         files=[transformed_data['summary_file_path']],
