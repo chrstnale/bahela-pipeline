@@ -2,6 +2,11 @@
 
 This repository contains ETL pipelines designed to automate data extraction, transformation, and loading (ETL) tasks for Bahela's photobooth services. The pipelines process session and image data, load it into **Google BigQuery**, send daily summaries, and provide weekly analytics with predictions.
 
+## Access Details
+
+- **Recording Link**: [UGM Zoom Recording](https://ugm-id.zoom.us/rec/share/qOmupBypktIyLc6bsinKtLZRmDNyp8xLuUDqR_8r5bIwYvzOSF3NnWz3Tc2paDyt.GWaOyn0_3nf0Dngd?startTime=1732759841000)
+- **Passcode**: `ZL+0WErc`
+
 ---
 
 ## Project Overview
